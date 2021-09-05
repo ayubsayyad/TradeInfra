@@ -1,0 +1,246 @@
+#include <iostream>
+
+#include <array>
+#include <unordered_map>
+#include <map>
+#include <algorithm>
+#include <limits>
+
+template<size_t LEVELS_OFINTEREST = 5>
+class NLevelOrderBook {
+public:
+    struct PriceLevel {
+        int64_t price_;
+        uint64_t qty_;
+
+        friend bool operator<(const PriceLevel &l, const PriceLevel &r) {
+            return l.price_ < r.price_;
+        }
+    };
+
+    NLevelOrderBook() {
+        for (auto &lvl : bid_levels_) {
+            lvl.price_ = std::numeric_limits<int64_t>::min();
+            lvl.qty_ = 0;
+        }
+        for (auto &lvl : ask_levels_) {
+            lvl.price_ = std::numeric_limits<int64_t>::max();
+            lvl.qty_ = 0;
+        }
+    }
+
+    void addBid(const PriceLevel &level) {
+        //std::cout << "Adding: " << level.qty_ << "@" << level.price_ << std::endl;
+        if (level.price_ < bid_levels_[bid_levels_.max_size() - 1].price_) {
+            bid_map_.insert({level.price_, level});
+            //top did not change.
+            return;
+        }
+        for (auto idx = 0; idx < bid_levels_.max_size(); ++idx) {
+            if (bid_levels_[idx].price_ == level.price_) {
+                bid_levels_[idx].qty_ += level.qty_;
+                //top changed
+                return;
+            }
+            if (bid_levels_[idx].price_ < level.price_) {
+                auto last = bid_levels_[bid_levels_.max_size() - 1];
+                for (auto midx = bid_levels_.max_size() - 1; midx > idx; --midx) {
+                    bid_levels_[midx] = bid_levels_[midx - 1];
+                }
+                bid_levels_[idx] = level;
+                if (last.price_ != std::numeric_limits<int64_t>::min()) {
+                    bid_map_.insert({last.price_, last});
+                }
+                //top changed
+                return;
+            }
+        }
+    }
+
+    void addAsk(const PriceLevel &level) {
+        //std::cout << "Adding Ask: " << level.qty_ << "@" << level.price_ << std::endl;
+        if (level.price_ > ask_levels_[ask_levels_.max_size() - 1].price_) {
+            ask_map_.insert({level.price_, level});
+            //top did not change.
+            return;
+        }
+        for (auto idx = 0; idx < ask_levels_.max_size(); ++idx) {
+            if (ask_levels_[idx].price_ == level.price_) {
+                ask_levels_[idx].qty_ += level.qty_;
+                //top changed
+                return;
+            }
+            if (ask_levels_[idx].price_ > level.price_) {
+                auto last = ask_levels_[ask_levels_.max_size() - 1];
+                for (auto level_idx = ask_levels_.max_size() - 1; level_idx > idx; --level_idx) {
+                    ask_levels_[level_idx] = ask_levels_[level_idx - 1];
+                }
+                ask_levels_[idx] = level;
+                if (last.price_ != std::numeric_limits<int64_t>::max()) {
+                    ask_map_.insert({last.price_, last});
+                }
+
+                //top changed
+                return;
+            }
+        }
+    }
+    void removeAsk(const PriceLevel &level) {
+        //std::cout << "Removing Ask: " << level.qty_ << "@" << level.price_ << std::endl;
+        if (level.price_ > ask_levels_[ask_levels_.max_size() - 1].price_) {
+            auto iter = ask_map_.find(level.price_);
+            if (iter == ask_map_.end()) {
+                //book suspect report error
+            } else {
+                iter->second.qty_ -= level.qty_;
+                if (iter->second.qty_ < 1) {
+                    ask_map_.erase(iter);
+                }
+            }
+            //top did not change.
+            return;
+        } else {
+            for (auto idx = 0; idx < ask_levels_.max_size(); ++idx) {
+                if (ask_levels_[idx].price_ == level.price_) {
+                    ask_levels_[idx].qty_ -= level.qty_;
+                    if (ask_levels_[idx].qty_ < 1) {
+                        for (auto midx = idx; midx < ask_levels_.max_size() - 1; ++midx) {
+                            ask_levels_[midx] = ask_levels_[midx + 1];
+                        }
+                        if (ask_map_.size()) {
+                            ask_levels_[ask_levels_.max_size() - 1] = (ask_map_.begin()->second);
+                            ask_map_.erase(ask_map_.begin());
+                        } else {
+                            ask_levels_[ask_levels_.max_size() - 1].price_ = std::numeric_limits<int64_t>::max();
+                            ask_levels_[ask_levels_.max_size() - 1].qty_ = 0;
+                        }
+                    } else {
+                        //done as qty still remains at that level
+                    }
+                }
+            }
+        }
+    }
+
+    void removeBid(const PriceLevel &level) {
+        //std::cout << "Removing Bid: " << level.qty_ << "@" << level.price_ << std::endl;
+        if (level.price_ < bid_levels_[bid_levels_.max_size() - 1].price_) {
+            auto iter = bid_map_.find(level.price_);
+            if (iter == bid_map_.end()) {
+                //book suspect report error
+            } else {
+                iter->second.qty_ -= level.qty_;
+                if (iter->second.qty_ < 1) {
+                    bid_map_.erase(iter);
+                }
+            }
+            //top did not change.
+            return;
+        } else {
+            for (auto idx = 0; idx < bid_levels_.max_size(); ++idx) {
+                if (bid_levels_[idx].price_ == level.price_) {
+                    bid_levels_[idx].qty_ -= level.qty_;
+                    if (bid_levels_[idx].qty_ < 1) {
+                        for (auto midx = idx; midx < bid_levels_.max_size() - 1; ++midx) {
+                            bid_levels_[midx] = bid_levels_[midx + 1];
+                        }
+                        if (bid_map_.size()) {
+                            bid_levels_[bid_levels_.max_size() - 1] = (bid_map_.begin()->second);
+                            bid_map_.erase(bid_map_.begin());
+                        } else {
+                            bid_levels_[bid_levels_.max_size() - 1].price_ = std::numeric_limits<int64_t>::min();
+                            bid_levels_[bid_levels_.max_size() - 1].qty_ = 0;
+                        }
+                    } else {
+                        //done as qty still remains at that level
+                    }
+                }
+            }
+        }
+    }
+
+    template<typename BookSide>
+    void printbook(const BookSide& book, std::array<PriceLevel, LEVELS_OFINTEREST>& top) {
+        for (auto idx = 0; idx < top.max_size(); ++idx) {
+            if(top[idx].price_ == std::numeric_limits<int64_t>::min() or
+               top[idx].price_ == std::numeric_limits<int64_t>::max())
+            {
+                continue;
+            }
+            //std::cout << top[idx].price_ << "\t" << top[idx].qty_ << "\n";
+        }
+        //std::cout << "Map \n";
+        for (auto &val : book) {
+            //std::cout << val.second.price_ << "\t" << val.second.price_ << "\n";
+        }
+
+        //std::cout << std::endl;
+    }
+    void printbook(){
+        printbook(bid_map_, bid_levels_);
+        printbook(ask_map_, ask_levels_);
+    }
+
+private:
+    std::array<PriceLevel, LEVELS_OFINTEREST> bid_levels_;
+    std::array<PriceLevel, LEVELS_OFINTEREST> ask_levels_;
+
+    std::map<int, PriceLevel, std::greater<int>> bid_map_;
+    std::map<int, PriceLevel> ask_map_;
+
+};
+
+int main() {
+    //std::cout << "Hello, World!" << std::endl;
+
+    NLevelOrderBook book;
+    decltype(book)::PriceLevel lvl;
+    lvl.price_ = 100;
+    lvl.qty_ = 10;
+    book.addAsk(lvl);
+
+    lvl.price_ = 200;
+    lvl.qty_ = 10;
+    book.addAsk(lvl);
+    lvl.price_ = 300;
+    lvl.qty_ = 10;
+    book.addAsk(lvl);
+    lvl.price_ = 400;
+    lvl.qty_ = 10;
+    book.addAsk(lvl);
+    book.printbook();
+    lvl.price_ = 500;
+    lvl.qty_ = 10;
+    book.addAsk(lvl);
+
+    lvl.price_ = 600;
+    lvl.qty_ = 10;
+    book.addAsk(lvl);
+
+    lvl.price_ = 50;
+    lvl.qty_ = 10;
+    book.addAsk(lvl);
+
+    book.printbook();
+
+    lvl.price_ = 600;
+    lvl.qty_ = 10;
+    book.removeAsk(lvl);
+
+    book.printbook();
+
+    lvl.price_ = 100;
+    lvl.qty_ = 10;
+    book.removeAsk(lvl);
+
+    book.printbook();
+
+    lvl.price_ = 200;
+    lvl.qty_ = 10;
+    book.removeAsk(lvl);
+
+
+    book.printbook();
+
+    return 0;
+}
